@@ -1,0 +1,202 @@
+{
+  "name": "Casino Data Collection & AI Review Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.webhook_url}}/webhook/casino-data-trigger",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "casino_name",
+              "value": "={{$json.casino_name}}"
+            },
+            {
+              "name": "casino_url", 
+              "value": "={{$json.casino_url}}"
+            }
+          ]
+        }
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$node.Webhook Trigger.json.casino_url}}",
+        "options": {
+          "waitUntil": "networkidle"
+        }
+      },
+      "name": "Scrape Casino Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract casino information\nconst html = $input.first().json.data;\nconst cheerio = require('cheerio');\nconst $ = cheerio.load(html);\n\n// Extract key casino data\nconst casinoData = {\n  name: $('title').text() || $node.parameters.casino_name,\n  license: $('.license, .licensing').text() || 'Not specified',\n  games: $('.games-count, .game-providers').text() || 'Multiple providers',\n  bonuses: $('.bonus, .welcome-bonus').text() || 'Welcome bonus available',\n  paymentMethods: $('.payment-methods, .banking').text() || 'Multiple payment options',\n  support: $('.support, .contact').text() || '24/7 support available',\n  mobileOptimized: $('[class*=\"mobile\"], [class*=\"responsive\"]').length > 0,\n  established: $('.established, .since').text() || 'Established operator',\n  trustSignals: $('.ssl, .secure, .certified').length,\n  extractedAt: new Date().toISOString()\n};\n\nreturn { casinoData };"
+      },
+      "name": "Extract Casino Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "completions",
+        "model": "gpt-4",
+        "prompt": "Generate a comprehensive, SEO-optimized casino review for {{$node[\"Webhook Trigger\"].json[\"casino_name\"]}} based on this data: {{$json.casinoData}}. \n\nThe review should:\n- Be 2000+ words\n- Include detailed sections on games, bonuses, banking, mobile experience, and licensing\n- Be E-E-A-T compliant with expert insights\n- Include internal linking opportunities\n- Have a professional, trustworthy tone\n- Include specific ratings for each category (1-10)\n- Address user concerns and questions\n- Be optimized for keywords like 'casino review', 'online casino', and specific casino name\n\nFormat as HTML with proper headings and structure.",
+        "temperature": 0.7,
+        "maxTokens": 4000
+      },
+      "name": "Generate AI Review",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SEO optimization and quality checks\nconst content = $input.first().json.choices[0].text;\n\n// Calculate SEO metrics\nconst wordCount = content.split(' ').length;\nconst headingCount = (content.match(/<h[1-6]/gi) || []).length;\nconst linkCount = (content.match(/<a /gi) || []).length;\nconst imageCount = (content.match(/<img /gi) || []).length;\n\n// Quality scoring\nconst qualityScore = Math.min(10, \n  (wordCount > 1500 ? 3 : 0) +\n  (headingCount > 5 ? 2 : 0) +\n  (linkCount > 3 ? 2 : 0) +\n  (content.includes('license') ? 1 : 0) +\n  (content.includes('bonus') ? 1 : 0) +\n  (content.includes('games') ? 1 : 0)\n);\n\n// SEO optimization\nconst seoScore = Math.min(10,\n  (wordCount >= 2000 ? 3 : 0) +\n  (headingCount >= 6 ? 2 : 0) +\n  (content.includes('meta description') ? 2 : 0) +\n  (linkCount >= 5 ? 2 : 0) +\n  (content.includes('schema') ? 1 : 0)\n);\n\nreturn {\n  content,\n  wordCount,\n  qualityScore,\n  seoScore,\n  status: qualityScore >= 7 ? 'approved' : 'needs_review'\n};"
+      },
+      "name": "SEO Optimization",
+      "type": "n8n-nodes-base.code", 
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3001/api/reviews",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "casino_name",
+              "value": "={{$node[\"Webhook Trigger\"].json[\"casino_name\"]}}"
+            },
+            {
+              "name": "content",
+              "value": "={{$json.content}}"
+            },
+            {
+              "name": "word_count",
+              "value": "={{$json.wordCount}}"
+            },
+            {
+              "name": "quality_score",
+              "value": "={{$json.qualityScore}}"
+            },
+            {
+              "name": "seo_score",
+              "value": "={{$json.seoScore}}"
+            },
+            {
+              "name": "status",
+              "value": "={{$json.status}}"
+            }
+          ]
+        }
+      },
+      "name": "Save to Database",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#casino-intelligence",
+        "text": "🎯 New Casino Review Generated!\n\n*Casino:* {{$node[\"Webhook Trigger\"].json[\"casino_name\"]}}\n*Word Count:* {{$node[\"SEO Optimization\"].json[\"wordCount\"]}}\n*Quality Score:* {{$node[\"SEO Optimization\"].json[\"qualityScore\"]}}/10\n*SEO Score:* {{$node[\"SEO Optimization\"].json[\"seoScore\"]}}/10\n*Status:* {{$node[\"SEO Optimization\"].json[\"status\"]}}\n\n{{$node[\"SEO Optimization\"].json[\"status\"] === \"approved\" ? \"✅ Ready for publication!\" : \"⚠️ Needs human review\"}}"
+      },
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Scrape Casino Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Casino Data": {
+      "main": [
+        [
+          {
+            "node": "Extract Casino Info",
+            "type": "main", 
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Casino Info": {
+      "main": [
+        [
+          {
+            "node": "Generate AI Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate AI Review": {
+      "main": [
+        [
+          {
+            "node": "SEO Optimization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SEO Optimization": {
+      "main": [
+        [
+          {
+            "node": "Save to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Database": {
+      "main": [
+        [
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "id": "1"
+}

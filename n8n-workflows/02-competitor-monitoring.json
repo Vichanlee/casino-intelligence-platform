@@ -1,0 +1,250 @@
+{
+  "name": "Competitor Intelligence Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:3001/api/competitors?status=active",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "name": "Get Active Competitors",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 3,
+        "options": {}
+      },
+      "name": "Process in Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.domain}}",
+        "options": {
+          "timeout": 30000,
+          "waitUntil": "networkidle"
+        }
+      },
+      "name": "Scrape Competitor Site",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Advanced competitor analysis\nconst html = $input.first().json.data;\nconst competitor = $input.first().json;\nconst cheerio = require('cheerio');\nconst $ = cheerio.load(html);\n\n// Extract key competitive intelligence\nconst analysis = {\n  domain: competitor.domain,\n  competitor_id: competitor.id,\n  scan_date: new Date().toISOString(),\n  \n  // Content analysis\n  new_content: [],\n  content_changes: {},\n  \n  // SEO metrics\n  title_tags: $('title').text().length,\n  meta_descriptions: $('meta[name=\"description\"]').attr('content')?.length || 0,\n  h1_count: $('h1').length,\n  h2_count: $('h2').length,\n  internal_links: $('a[href^=\"/\"], a[href*=\"' + competitor.domain + '\"]').length,\n  external_links: $('a[href^=\"http\"]').not('[href*=\"' + competitor.domain + '\"]').length,\n  \n  // Bonus tracking\n  bonus_mentions: $('.bonus, .welcome, .promotion, [class*=\"bonus\"]').length,\n  bonus_text: $('.bonus, .welcome, .promotion').text(),\n  \n  // Technical metrics\n  page_size: html.length,\n  image_count: $('img').length,\n  script_count: $('script').length,\n  css_count: $('link[rel=\"stylesheet\"]').length,\n  \n  // Trust signals\n  ssl_mentions: html.toLowerCase().includes('ssl') || html.toLowerCase().includes('secure'),\n  license_mentions: $('.license, .licensing, [class*=\"license\"]').length,\n  \n  // New casino discoveries\n  casino_mentions: $('.casino, .review, [data-casino]').length\n};\n\n// Detect significant changes (simplified)\nanalysis.alert_triggered = \n  analysis.bonus_mentions > (competitor.last_bonus_count || 0) + 5 ||\n  analysis.casino_mentions > (competitor.last_casino_count || 0) + 10;\n\nanalysis.alert_message = analysis.alert_triggered ? \n  `Significant changes detected on ${competitor.domain}` : null;\n\nreturn analysis;"
+      },
+      "name": "Analyze Competitor Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ]
+},
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3001/api/competitors/monitoring",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "competitor_id",
+              "value": "={{$json.competitor_id}}"
+            },
+            {
+              "name": "analysis_data",
+              "value": "={{JSON.stringify($json)}}"
+            }
+          ]
+        }
+      },
+      "name": "Save Analysis Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.alert_triggered}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check for Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#competitor-alerts",
+        "text": "🚨 *Competitor Alert*\n\n*Domain:* {{$json.domain}}\n*Alert:* {{$json.alert_message}}\n*New Bonuses:* {{$json.bonus_mentions}}\n*New Casinos:* {{$json.casino_mentions}}\n*Analysis Time:* {{$json.scan_date}}\n\n_Investigate immediately for competitive opportunities!_"
+      },
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3001/api/workflows/log",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "competitor-monitoring"
+            },
+            {
+              "name": "status", 
+              "value": "completed"
+            },
+            {
+              "name": "processed_count",
+              "value": "={{$json.processed || 1}}"
+            }
+          ]
+        }
+      },
+      "name": "Log Completion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1650, 400]
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Get Active Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Competitors": {
+      "main": [
+        [
+          {
+            "node": "Process in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process in Batches": {
+      "main": [
+        [
+          {
+            "node": "Scrape Competitor Site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Competitor Site": {
+      "main": [
+        [
+          {
+            "node": "Analyze Competitor Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Competitor Data": {
+      "main": [
+        [
+          {
+            "node": "Save Analysis Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Analysis Data": {
+      "main": [
+        [
+          {
+            "node": "Check for Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Alerts": {
+      "main": [
+        [
+          {
+            "node": "Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "UTC"
+  },
+  "id": "2"
+}
